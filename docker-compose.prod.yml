@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: threemonks-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-threemonks}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # No port exposure — only backend connects internally
+
+  backend:
+    build: ./backend
+    container_name: threemonks-backend
+    environment:
+      TZ: Asia/Kolkata
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-threemonks}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://3monks.co.in}
+      MAIL_USERNAME: ${MAIL_USERNAME:-3monks.official@gmail.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-changeme}
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # No port exposure — only proxy routes to backend internally
+
+  frontend:
+    build: ./frontend
+    container_name: threemonks-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+    # No port exposure — proxy routes to frontend internally
+
+  proxy:
+    build:
+      context: ./proxy
+      args:
+        NGINX_CONF: nginx.prod.conf
+    container_name: threemonks-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: threemonks-certbot
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # Renew certificates every 12 hours (only acts if renewal is due)
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'"
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  certbot-conf:
+  certbot-www:

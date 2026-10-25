@@ -1,0 +1,499 @@
+# ==========================================================
+# 3Monks — CI/CD Pipeline
+# ==========================================================
+# Enterprise-grade multi-stage pipeline that validates, deploys, and
+# verifies the full stack on AWS Lightsail via Docker Compose.
+#
+# Architecture:
+#   Proxy (nginx/HTTPS) → Frontend (React/nginx) + Backend (Spring Boot)
+#   + PostgreSQL + Certbot (Let's Encrypt auto-renewal)
+#
+# Stages:
+#   1. Validate    — Lint & structure checks
+#   2. Prepare     — Server connectivity, directories, environment config
+#   3. Deploy      — Sync code, build images, start services
+#   4. Verify      — Health checks & smoke tests
+#   5. Rollback    — Collect logs on failure (runs only if deploy/verify fail)
+#
+# Required GitHub Secrets (environment: prod):
+#   LIGHTSAIL_HOST      — Public IP or hostname of the Lightsail instance
+#   LIGHTSAIL_USER      — SSH username (usually "ubuntu")
+#   LIGHTSAIL_SSH_KEY   — Private SSH key (PEM) for the instance
+#   DB_PASSWORD         — PostgreSQL password
+#   JWT_SECRET          — JWT signing secret
+#   CORS_ORIGINS        — Allowed CORS origins (e.g. https://3monks.co.in)
+# ==========================================================
+
+name: 3Monks CI/CD Pipeline
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /opt/threemonks
+  COMPOSE_FILE: docker-compose.prod.yml
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Stage 1 — Validate
+  # ──────────────────────────────────────────────────────────
+  validate:
+    name: "1 · Validate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify project structure
+        run: |
+          echo "── Checking required files & directories ──"
+          errors=0
+          for dir in backend frontend proxy; do
+            if [ -d "$dir" ]; then
+              echo "  ✓ $dir/"
+            else
+              echo "  ✗ Missing $dir/" && errors=$((errors+1))
+            fi
+          done
+          for file in backend/Dockerfile frontend/Dockerfile proxy/Dockerfile proxy/nginx.prod.conf docker-compose.prod.yml init-ssl.sh; do
+            if [ -f "$file" ]; then
+              echo "  ✓ $file"
+            else
+              echo "  ✗ Missing $file" && errors=$((errors+1))
+            fi
+          done
+          [ $errors -eq 0 ] && echo "── Structure valid ──" || { echo "── $errors error(s) found ──"; exit 1; }
+
+      - name: Validate Docker Compose config
+        run: |
+          # Supply dummy values for required env vars so compose can parse the file
+          export DB_PASSWORD=dummy JWT_SECRET=dummy CORS_ORIGINS=http://localhost
+          docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Validate Dockerfiles
+        run: |
+          echo "── Dockerfile syntax check ──"
+          for f in backend/Dockerfile frontend/Dockerfile proxy/Dockerfile; do
+            if head -1 "$f" | grep -qi "^FROM"; then
+              echo "  ✓ $f starts with FROM"
+            else
+              echo "  ✗ $f does not start with FROM" && exit 1
+            fi
+          done
+          echo "── Dockerfiles valid ──"
+
+  # ──────────────────────────────────────────────────────────
+  # Stage 2 — Prepare Server
+  # ──────────────────────────────────────────────────────────
+  prepare:
+    name: "2 · Prepare Server"
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 5
+
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+
+      - name: Configure SSH client
+        run: |
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<CFG
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+            ConnectTimeout 10
+          CFG
+          chmod 644 ~/.ssh/config
+
+      - name: Verify server connectivity
+        run: |
+          echo "── Testing TCP connectivity ──"
+          for i in 1 2 3; do
+            if nc -z -w 5 ${{ secrets.LIGHTSAIL_HOST }} 22 2>/dev/null; then
+              echo "  ✓ Port 22 reachable on attempt $i"
+              exit 0
+            fi
+            echo "  Attempt $i failed, retrying in 5s..." && sleep 5
+          done
+          echo "  ✗ Cannot reach ${{ secrets.LIGHTSAIL_HOST }}:22"
+          exit 1
+
+      - name: Verify SSH authentication
+        run: ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo '✓ SSH authenticated as $(whoami)'"
+
+      - name: Prepare application directory
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            sudo mkdir -p ${{ env.APP_DIR }}
+            sudo chown -R \$(whoami):\$(whoami) ${{ env.APP_DIR }}
+            echo '✓ ${{ env.APP_DIR }} ready'
+          "
+
+      - name: Write environment config
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'DB_NAME=threemonks' > ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'DB_USERNAME=postgres' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'JWT_SECRET=${{ secrets.JWT_SECRET }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo '✓ .env written ('\$(wc -l < ${{ env.APP_DIR }}/.env)' lines)'"
+
+  # ──────────────────────────────────────────────────────────
+  # Stage 3 — Deploy
+  # ──────────────────────────────────────────────────────────
+  deploy:
+    name: "3 · Deploy"
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+
+      - name: Configure SSH client
+        run: |
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<CFG
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+            ConnectTimeout 10
+          CFG
+          chmod 644 ~/.ssh/config
+
+      - name: Sync project files
+        run: |
+          echo "── Syncing files to ${{ env.APP_DIR }} ──"
+          rsync -avz --delete \
+            --include='backend/***' \
+            --include='frontend/***' \
+            --include='proxy/***' \
+            --include='docker-compose.prod.yml' \
+            --include='init-ssl.sh' \
+            --exclude='*' \
+            ./ ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }}:${{ env.APP_DIR }}/
+          echo "── Sync complete ──"
+
+      - name: Build Docker images
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            cd ${{ env.APP_DIR }}
+            echo '── Building images (existing containers still serving traffic) ──'
+            sudo docker compose -f ${{ env.COMPOSE_FILE }} build --no-cache
+            echo '── Build complete ──'
+          "
+
+      - name: Stop existing containers and start with new images
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            cd ${{ env.APP_DIR }}
+            if sudo docker compose -f ${{ env.COMPOSE_FILE }} ps --quiet 2>/dev/null | grep -q .; then
+              echo '── Stopping existing containers ──'
+              sudo docker compose -f ${{ env.COMPOSE_FILE }} down --timeout 30
+              echo '── Containers stopped ──'
+            else
+              echo '── No running containers to stop ──'
+            fi
+            echo '── Starting services with updated images ──'
+            sudo docker compose -f ${{ env.COMPOSE_FILE }} up -d
+            echo '── Services started ──'
+            sudo docker compose -f ${{ env.COMPOSE_FILE }} ps
+          "
+
+      - name: Provision SSL certificates (if needed)
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            cd ${{ env.APP_DIR }}
+            echo '── Checking SSL certificate status ──'
+            # Check if certbot-managed renewal config exists (indicates real certs)
+            CERT_EXISTS=\$(sudo docker compose -f ${{ env.COMPOSE_FILE }} exec -T proxy \
+              sh -c 'test -f /etc/letsencrypt/renewal/3monks.co.in.conf && echo yes || echo no')
+            if [ \"\$CERT_EXISTS\" = 'yes' ]; then
+              # Verify the existing cert is actually valid (not self-signed)
+              ISSUER=\$(sudo docker compose -f ${{ env.COMPOSE_FILE }} exec -T proxy \
+                sh -c 'openssl x509 -in /etc/letsencrypt/live/3monks.co.in/fullchain.pem -issuer -noout 2>/dev/null' || echo 'unknown')
+              if echo \"\$ISSUER\" | grep -qi 'encrypt'; then
+                echo '✓ Valid Let'\''s Encrypt certificates found'
+              else
+                echo '⚠ Renewal config exists but cert may be self-signed. Re-issuing...'
+                sudo docker compose -f ${{ env.COMPOSE_FILE }} run --rm --entrypoint '' certbot \
+                  sh -c 'rm -rf /etc/letsencrypt/renewal/3monks.co.in.conf /etc/letsencrypt/live/3monks.co.in /etc/letsencrypt/archive/3monks.co.in 2>/dev/null; echo Cleaned'
+                sudo docker compose -f ${{ env.COMPOSE_FILE }} run --rm --entrypoint '' certbot \
+                  certbot certonly \
+                  --webroot \
+                  --webroot-path=/var/www/certbot \
+                  --email admin@3monks.co.in \
+                  --agree-tos \
+                  --no-eff-email \
+                  --force-renewal \
+                  -d 3monks.co.in \
+                  -d www.3monks.co.in \
+                  --non-interactive || echo '⚠ Certbot failed — site will use self-signed certs until resolved'
+                echo '── Reloading nginx to pick up new certificates ──'
+                sudo docker compose -f ${{ env.COMPOSE_FILE }} exec -T proxy nginx -s reload || true
+              fi
+            else
+              echo '── Requesting Let'\''s Encrypt certificates ──'
+              # Clean any broken state before requesting
+              sudo docker compose -f ${{ env.COMPOSE_FILE }} run --rm --entrypoint '' certbot \
+                sh -c 'rm -rf /etc/letsencrypt/renewal/3monks.co.in.conf /etc/letsencrypt/live/3monks.co.in /etc/letsencrypt/archive/3monks.co.in 2>/dev/null; echo Cleaned'
+              sudo docker compose -f ${{ env.COMPOSE_FILE }} run --rm --entrypoint '' certbot \
+                certbot certonly \
+                --webroot \
+                --webroot-path=/var/www/certbot \
+                --email admin@3monks.co.in \
+                --agree-tos \
+                --no-eff-email \
+                --force-renewal \
+                -d 3monks.co.in \
+                -d www.3monks.co.in \
+                --non-interactive || echo '⚠ Certbot failed — site will use self-signed certs until resolved'
+              echo '── Reloading nginx to pick up new certificates ──'
+              sudo docker compose -f ${{ env.COMPOSE_FILE }} exec -T proxy nginx -s reload || true
+            fi
+          "
+
+      - name: Cleanup unused images
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            echo '── Pruning dangling images ──'
+            sudo docker image prune -f
+            echo '── Cleanup done ──'
+          "
+
+  # ──────────────────────────────────────────────────────────
+  # Stage 4 — Verify
+  # ──────────────────────────────────────────────────────────
+  verify:
+    name: "4 · Verify"
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 5
+
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+
+      - name: Configure SSH client
+        run: |
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<CFG
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ConnectTimeout 10
+          CFG
+          chmod 644 ~/.ssh/config
+
+      - name: Wait for services to stabilize
+        run: |
+          echo "── Waiting 30s for services to start ──"
+          sleep 30
+
+      - name: Check container health
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            echo '── Container Status ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} ps
+            echo ''
+            RUNNING=\$(sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} ps --status running --quiet | wc -l)
+            EXPECTED=5
+            if [ \"\$RUNNING\" -ge \"\$EXPECTED\" ]; then
+              echo \"✓ All \$RUNNING/\$EXPECTED containers running\"
+            else
+              echo \"✗ Only \$RUNNING/\$EXPECTED containers running\"
+              sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} ps
+              exit 1
+            fi
+          "
+
+      - name: Frontend health check
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost || echo '000')
+            if [ \"\$HTTP_STATUS\" = '200' ] || [ \"\$HTTP_STATUS\" = '301' ]; then
+              echo '✓ Proxy healthy (HTTP '\$HTTP_STATUS') — redirecting to HTTPS'
+            else
+              echo '✗ Proxy unhealthy (HTTP '\$HTTP_STATUS')'
+              sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=30 proxy
+              exit 1
+            fi
+          "
+
+      - name: HTTPS health check
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            HTTPS_STATUS=\$(curl -sk -o /dev/null -w '%{http_code}' https://localhost || echo '000')
+            if [ \"\$HTTPS_STATUS\" = '200' ]; then
+              echo '✓ HTTPS frontend healthy (HTTP '\$HTTPS_STATUS')'
+            else
+              echo '⚠ HTTPS returned '\$HTTPS_STATUS' (may need SSL cert setup via init-ssl.sh)'
+            fi
+          "
+
+      - name: Backend health check
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            API_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost/api/auth/health 2>/dev/null || echo '000')
+            if [ \"\$API_STATUS\" = '000' ]; then
+              echo '✗ Backend unreachable (no response)'
+              sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=30 backend
+              exit 1
+            elif [ \"\$API_STATUS\" = '200' ]; then
+              echo '✓ Backend healthy (HTTP '\$API_STATUS')'
+            else
+              echo '⚠ Backend reachable but returned HTTP '\$API_STATUS' (non-critical)'
+            fi
+          "
+
+      - name: Resource usage summary
+        run: |
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            echo '── Resource Usage ──'
+            sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}' 2>/dev/null || true
+            echo ''
+            echo '── Disk Usage ──'
+            df -h / | tail -1
+          "
+
+      # ── External website validation (from GitHub runner, not server) ──
+      - name: Validate website via public URL (IP)
+        run: |
+          echo "── Testing http://${{ secrets.LIGHTSAIL_HOST }} (should redirect to HTTPS) ──"
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 15 http://${{ secrets.LIGHTSAIL_HOST }} 2>/dev/null || echo "000")
+          if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "301" ]; then
+            echo "✓ Website accessible via IP (HTTP $HTTP_STATUS)"
+          else
+            echo "⚠ Website returned HTTP $HTTP_STATUS via IP (may redirect to domain)"
+          fi
+
+      - name: Validate website via domain (HTTPS)
+        continue-on-error: true
+        run: |
+          echo "── Testing https://3monks.co.in ──"
+          HTTPS_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 15 https://3monks.co.in 2>/dev/null || echo "000")
+          if [ "$HTTPS_STATUS" = "200" ]; then
+            echo "✓ Website accessible via HTTPS (HTTP $HTTPS_STATUS)"
+          elif [ "$HTTPS_STATUS" = "000" ]; then
+            echo "⚠ Domain not resolving yet (DNS may still be propagating)"
+          else
+            echo "⚠ Domain returned HTTP $HTTPS_STATUS"
+          fi
+
+          echo ""
+          echo "── Testing https://www.3monks.co.in ──"
+          WWW_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 15 https://www.3monks.co.in 2>/dev/null || echo "000")
+          if [ "$WWW_STATUS" = "200" ]; then
+            echo "✓ www subdomain redirects correctly (HTTP $WWW_STATUS)"
+          elif [ "$WWW_STATUS" = "000" ]; then
+            echo "⚠ www subdomain not resolving yet"
+          else
+            echo "⚠ www subdomain returned HTTP $WWW_STATUS"
+          fi
+
+      - name: Validate page content
+        run: |
+          echo "── Checking page content ──"
+          BODY=$(curl -s -L --max-time 15 http://${{ secrets.LIGHTSAIL_HOST }} 2>/dev/null)
+          if echo "$BODY" | grep -qi "3monks\|3 monks\|juice\|<!DOCTYPE html>"; then
+            echo "✓ Page content looks correct (HTML returned)"
+          else
+            echo "✗ Unexpected page content"
+            echo "$BODY" | head -20
+            exit 1
+          fi
+
+  # ──────────────────────────────────────────────────────────
+  # Stage 5 — Rollback / Diagnostics (runs only on failure)
+  # ──────────────────────────────────────────────────────────
+  rollback:
+    name: "5 · Diagnostics"
+    needs: [deploy, verify]
+    if: failure()
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 5
+
+    steps:
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+
+      - name: Configure SSH client
+        run: |
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<CFG
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ConnectTimeout 10
+          CFG
+          chmod 644 ~/.ssh/config
+
+      - name: Collect container logs
+        run: |
+          echo "══════════════════════════════════════════"
+          echo " DEPLOYMENT DIAGNOSTICS"
+          echo "══════════════════════════════════════════"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "
+            echo '── Container Status ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} ps 2>/dev/null || echo 'compose ps failed'
+            echo ''
+            echo '── Backend Logs (last 50 lines) ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=50 backend 2>/dev/null || echo 'no backend logs'
+            echo ''
+            echo '── Frontend Logs (last 50 lines) ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=50 frontend 2>/dev/null || echo 'no frontend logs'
+            echo ''
+            echo '── Proxy Logs (last 50 lines) ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=50 proxy 2>/dev/null || echo 'no proxy logs'
+            echo ''
+            echo '── Certbot Logs (last 30 lines) ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=30 certbot 2>/dev/null || echo 'no certbot logs'
+            echo ''
+            echo '── Postgres Logs (last 30 lines) ──'
+            sudo docker compose -f ${{ env.APP_DIR }}/${{ env.COMPOSE_FILE }} logs --tail=30 postgres 2>/dev/null || echo 'no postgres logs'
+            echo ''
+            echo '── Disk Space ──'
+            df -h /
+            echo ''
+            echo '── Docker Disk Usage ──'
+            sudo docker system df 2>/dev/null || true
+          "
+
+      - name: Deployment failure summary
+        if: always()
+        run: |
+          echo "══════════════════════════════════════════"
+          echo " DEPLOYMENT FAILED"
+          echo " Review the diagnostics above."
+          echo " Manual intervention may be required."
+          echo "══════════════════════════════════════════"

@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: threemonks-db
+    environment:
+      POSTGRES_DB: threemonks
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: threemonks-backend
+    environment:
+      TZ: Asia/Kolkata
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: threemonks
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres123
+      JWT_SECRET: 3MonksSecretKey2024VeryLongSecretKeyForJWTSigning!!
+      CORS_ORIGINS: http://localhost,http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: threemonks-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  proxy:
+    build: ./proxy
+    container_name: threemonks-proxy
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
