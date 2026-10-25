@@ -18,4 +18,7 @@ public class OrderRequest {
 
     private String customerName;
     private String customerPhone;
+
+    // Takeaway packing; adds a per-item parcel charge
+    private Boolean parcel;
 }

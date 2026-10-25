@@ -3305,6 +3305,37 @@ tr:last-child td {
     margin-top: 8px;
 }
 
+.order-cart-parcel {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 12px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.order-parcel-btn {
+    width: 100%;
+    justify-content: center;
+}
+
+.order-parcel-hint {
+    font-size: 12px;
+    opacity: 0.75;
+}
+
+.queue-parcel-badge {
+    margin-left: 8px;
+    font-size: 11px;
+    vertical-align: middle;
+}
+
+.receipt-parcel {
+    text-align: center;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin: 4px 0;
+}
+
 /* ============ QUICK ORDER PAGE ============ */
 
 /* Compact Fruit Codes Strip */

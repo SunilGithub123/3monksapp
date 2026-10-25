@@ -48,3 +48,10 @@ export const roleLabels = {
     SHOP_MANAGER: 'Shop Manager',
     SHOP_OPERATOR: 'Shop Operator',
 };
+
+// Parcel (takeaway) packing charge per unit; keep in sync with OrderService
+export const PARCEL_CHARGES = { SHOT: 10, BLEND: 5 };
+
+export const getParcelCharge = (items) =>
+    (items || []).reduce((sum, item) =>
+        sum + (item.category === 'SHOT' ? PARCEL_CHARGES.SHOT : PARCEL_CHARGES.BLEND) * item.quantity, 0);

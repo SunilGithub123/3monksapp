@@ -191,6 +191,12 @@ const OrderHistoryPage = () => {
                                 ))}
                             </tbody>
                             <tfoot>
+                                {selectedOrder.parcel && (
+                                    <tr>
+                                        <td colSpan="3" style={{ textAlign: 'right', paddingTop: '12px' }}>🛍️ Parcel Charge</td>
+                                        <td style={{ textAlign: 'right', paddingTop: '12px' }}>{formatCurrency(selectedOrder.parcelCharge)}</td>
+                                    </tr>
+                                )}
                                 <tr>
                                     <td colSpan="3" style={{ textAlign: 'right', fontWeight: 700, paddingTop: '12px', borderTop: '2px solid #e0e0e0' }}>Total</td>
                                     <td style={{ textAlign: 'right', fontWeight: 700, paddingTop: '12px', borderTop: '2px solid #e0e0e0', color: 'var(--primary)' }}>{formatCurrency(selectedOrder.totalAmount)}</td>

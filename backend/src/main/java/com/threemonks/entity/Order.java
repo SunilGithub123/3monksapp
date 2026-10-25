@@ -40,6 +40,12 @@ public class Order {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 
+    // Nullable so existing rows stay valid; null means not a parcel order
+    private Boolean parcel;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal parcelCharge;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PaymentMode paymentMode;

@@ -3,6 +3,7 @@ package com.threemonks.service;
 import com.threemonks.dto.*;
 import com.threemonks.entity.*;
 import com.threemonks.enums.OrderStatus;
+import com.threemonks.enums.ProductCategory;
 import com.threemonks.enums.Role;
 import com.threemonks.exception.BadRequestException;
 import com.threemonks.exception.ResourceNotFoundException;
@@ -33,6 +34,9 @@ public class OrderService {
     private final RecipeService recipeService;
     private final StockRepository stockRepository;
     private final StockHistoryRepository stockHistoryRepository;
+    // Parcel (takeaway) packing charge per unit, by product type
+    private static final BigDecimal SHOT_PARCEL_CHARGE = BigDecimal.valueOf(10);
+    private static final BigDecimal BLEND_PARCEL_CHARGE = BigDecimal.valueOf(5);
     private static final AtomicLong orderCounter = new AtomicLong(System.currentTimeMillis());
 
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(OrderService.class);
@@ -74,7 +78,9 @@ public class OrderService {
                 .tokenNumber(tokenNumber)
                 .build();
 
+        boolean parcel = Boolean.TRUE.equals(request.getParcel());
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal parcelCharge = BigDecimal.ZERO;
 
         for (OrderItemRequest itemReq : request.getItems()) {
             Product product = productRepository.findById(itemReq.getProductId())
@@ -92,9 +98,17 @@ public class OrderService {
 
             order.addItem(item);
             total = total.add(subtotal);
+
+            if (parcel) {
+                BigDecimal unitCharge = product.getCategory() == ProductCategory.SHOT
+                        ? SHOT_PARCEL_CHARGE : BLEND_PARCEL_CHARGE;
+                parcelCharge = parcelCharge.add(unitCharge.multiply(BigDecimal.valueOf(itemReq.getQuantity())));
+            }
         }
 
-        order.setTotalAmount(total);
+        order.setParcel(parcel);
+        order.setParcelCharge(parcelCharge);
+        order.setTotalAmount(total.add(parcelCharge));
         Order saved = orderRepository.save(order);
 
         // Auto-deduct stock based on recipes
@@ -325,6 +339,8 @@ public class OrderService {
                 .createdByName(order.getCreatedBy().getFullName())
                 .items(items)
                 .totalAmount(order.getTotalAmount())
+                .parcel(Boolean.TRUE.equals(order.getParcel()))
+                .parcelCharge(order.getParcelCharge() != null ? order.getParcelCharge() : BigDecimal.ZERO)
                 .paymentMode(order.getPaymentMode())
                 .status(order.getStatus())
                 .customerName(order.getCustomerName())

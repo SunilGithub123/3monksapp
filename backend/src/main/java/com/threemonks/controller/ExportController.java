@@ -45,7 +45,7 @@ public class ExportController {
 
             Row header = sheet.createRow(0);
             String[] columns = { "Order #", "Shop", "Created By", "Products", "Qty", "Total Amount (₹)", "Payment Mode",
-                    "Status", "Customer", "Phone", "Date" };
+                    "Status", "Customer", "Phone", "Date", "Parcel Charge (₹)" };
             for (int i = 0; i < columns.length; i++) {
                 Cell cell = header.createCell(i);
                 cell.setCellValue(columns[i]);
@@ -83,6 +83,10 @@ public class ExportController {
                 row.createCell(9).setCellValue(order.getCustomerPhone() != null ? order.getCustomerPhone() : "");
                 row.createCell(10).setCellValue(
                         order.getOrderDate() != null ? order.getOrderDate().toString().replace("T", " ") : "");
+
+                Cell parcelCell = row.createCell(11);
+                parcelCell.setCellValue(order.getParcelCharge() != null ? order.getParcelCharge().doubleValue() : 0);
+                parcelCell.setCellStyle(amountStyle);
             }
 
             for (int i = 0; i < columns.length; i++) {

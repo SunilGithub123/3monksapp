@@ -293,6 +293,10 @@ export async function printReceipt(order) {
         parts.push(new Uint8Array(CMD.DOUBLE_SIZE));
         parts.push(encode(`Token #${order.tokenNumber}`));
         parts.push(new Uint8Array([LF]));
+        if (order.parcel) {
+            parts.push(encode('PARCEL'));
+            parts.push(new Uint8Array([LF]));
+        }
         parts.push(new Uint8Array(CMD.NORMAL_SIZE));
         parts.push(new Uint8Array(CMD.BOLD_OFF));
         parts.push(encode(LINE));
@@ -341,6 +345,14 @@ export async function printReceipt(order) {
 
     parts.push(encode(LINE));
     parts.push(new Uint8Array([LF]));
+
+    if (order.parcel) {
+        const parcelLabel = 'Parcel Charge';
+        const parcelAmt = formatAmount(order.parcelCharge);
+        const parcelPad = 32 - parcelLabel.length - parcelAmt.length;
+        parts.push(encode(parcelLabel + ' '.repeat(Math.max(1, parcelPad)) + parcelAmt));
+        parts.push(new Uint8Array([LF]));
+    }
 
     // === TOTAL — bold, normal size (not double) ===
     parts.push(new Uint8Array(CMD.BOLD_ON));
@@ -419,6 +431,10 @@ export async function printToken(order) {
         parts.push(new Uint8Array(CMD.DOUBLE_SIZE));
         parts.push(encode(`Token #${order.tokenNumber}`));
         parts.push(new Uint8Array([LF]));
+        if (order.parcel) {
+            parts.push(encode('PARCEL'));
+            parts.push(new Uint8Array([LF]));
+        }
         parts.push(new Uint8Array(CMD.NORMAL_SIZE));
         parts.push(new Uint8Array(CMD.BOLD_OFF));
     }

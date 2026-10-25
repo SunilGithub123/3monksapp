@@ -32,6 +32,8 @@ const Receipt = React.forwardRef(({ order, shop }, ref) => {
                 </div>
             )}
 
+            {order.parcel && <div className="receipt-parcel">PARCEL</div>}
+
             {/* Order Details */}
             <div className="receipt-section">
                 <table className="receipt-info-table">
@@ -69,6 +71,12 @@ const Receipt = React.forwardRef(({ order, shop }, ref) => {
             <div className="receipt-total">
                 <table>
                     <tbody>
+                        {order.parcel && (
+                            <tr>
+                                <td>Parcel Charge</td>
+                                <td className="text-right">{formatCurrency(order.parcelCharge)}</td>
+                            </tr>
+                        )}
                         <tr className="receipt-total-row">
                             <td>Total</td>
                             <td className="text-right">{formatCurrency(order.totalAmount)}</td>

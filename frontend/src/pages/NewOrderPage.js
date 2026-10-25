@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { publicService, orderService } from '../services/dataService';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getParcelCharge, PARCEL_CHARGES } from '../utils/helpers';
 import Receipt from '../components/Receipt';
 import toast from 'react-hot-toast';
 import {
@@ -22,6 +22,7 @@ const NewOrderPage = () => {
     const [selectedBlendFruits, setSelectedBlendFruits] = useState([]);
     const [cart, setCart] = useState([]);
     const [paymentMode, setPaymentMode] = useState('UPI');
+    const [parcel, setParcel] = useState(false);
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [loading, setLoading] = useState(false);
@@ -182,7 +183,8 @@ const NewOrderPage = () => {
         }
     };
 
-    const getTotal = () => cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const parcelCharge = parcel ? getParcelCharge(cart) : 0;
+    const getTotal = () => cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) + parcelCharge;
 
     const handleSubmit = async () => {
         if (cart.length === 0) { toast.error('Add items first'); return; }
@@ -196,12 +198,14 @@ const NewOrderPage = () => {
                     customization: item.customization,
                 })),
                 paymentMode,
+                parcel,
                 customerName: customerName || undefined,
                 customerPhone: customerPhone || undefined,
             });
             setOrder(res.data.data);
             toast.success('Order created!');
             setCart([]);
+            setParcel(false);
         } catch (err) {
             toast.error(err.response?.data?.message || 'Failed to create order');
         } finally {
@@ -403,6 +407,12 @@ const NewOrderPage = () => {
                                         </div>
                                     </div>
                                 ))}
+                                {parcel && (
+                                    <div className="order-cart-parcel">
+                                        <span>🛍️ Parcel charge</span>
+                                        <span>{formatCurrency(parcelCharge)}</span>
+                                    </div>
+                                )}
                                 <div className="order-cart-total">
                                     <span>Total</span>
                                     <span style={{ color: 'var(--primary)' }}>{formatCurrency(getTotal())}</span>
@@ -429,6 +439,12 @@ const NewOrderPage = () => {
                                     ))}
                                 </div>
                             </div>
+                            <button
+                                className={`btn ${parcel ? 'btn-primary' : 'btn-outline'} order-parcel-btn`}
+                                onClick={() => setParcel(!parcel)}
+                            >
+                                🛍️ Parcel {parcel ? '✓' : ''} <span className="order-parcel-hint">(+₹{PARCEL_CHARGES.SHOT}/shot, +₹{PARCEL_CHARGES.BLEND}/blend)</span>
+                            </button>
                             <button className="btn btn-primary btn-lg order-submit-btn"
                                 onClick={handleSubmit} disabled={cart.length === 0 || loading}>
                                 {loading ? 'Processing...' : `Place Order • ${formatCurrency(getTotal())}`}

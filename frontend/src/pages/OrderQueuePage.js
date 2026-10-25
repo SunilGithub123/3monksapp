@@ -128,7 +128,10 @@ const OrderQueuePage = () => {
                         {filteredPending.map((order, index) => (
                             <div key={order.id} className={`queue-card ${index === 0 ? 'queue-card-active' : ''}`}>
                                 <div className="queue-card-header">
-                                    <span className="queue-card-token">#{order.tokenNumber}</span>
+                                    <span className="queue-card-token">
+                                        #{order.tokenNumber}
+                                        {order.parcel && <span className="badge badge-warning queue-parcel-badge">🛍️ Parcel</span>}
+                                    </span>
                                     <span className="queue-card-time">
                                         {new Date(order.orderDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                     </span>

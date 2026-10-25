@@ -19,6 +19,8 @@ public class OrderResponse {
     private String createdByName;
     private List<OrderItemResponse> items;
     private BigDecimal totalAmount;
+    private boolean parcel;
+    private BigDecimal parcelCharge;
     private PaymentMode paymentMode;
     private OrderStatus status;
     private String customerName;
