@@ -29,3 +29,5 @@ node_modules/
 # Environment
 .env
 */build/*
+# Maven build output
+target/
