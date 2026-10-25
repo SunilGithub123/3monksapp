@@ -3703,6 +3703,17 @@ tr:last-child td {
     margin-bottom: 24px;
 }
 
+.queue-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.queue-card-item-dimmed {
+    opacity: 0.4;
+}
+
 .queue-section-title {
     font-size: 16px;
     font-weight: 700;

@@ -4,12 +4,29 @@ import { orderService } from '../services/dataService';
 import { formatCurrency } from '../utils/helpers';
 import toast from 'react-hot-toast';
 
+const FILTERS = [
+    { key: 'ALL', label: 'All' },
+    { key: 'SHOT', label: '⚡ Shots' },
+    { key: 'BLEND', label: '🥤 Blends' },
+];
+
+const isShotItem = (item) => item.productCategory === 'SHOT';
+const isBlendItem = (item) => item.productCategory === 'CREAMY_BLEND' || item.productCategory === 'CURATED_BLEND';
+
+// An order matches a filter if it contains at least one item of that type
+const matchesFilter = (order, filter) => {
+    if (filter === 'ALL') return true;
+    const check = filter === 'SHOT' ? isShotItem : isBlendItem;
+    return (order.items || []).some(check);
+};
+
 const OrderQueuePage = () => {
     const { user } = useAuth();
     const [pendingOrders, setPendingOrders] = useState([]);
     const [completedOrders, setCompletedOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [completing, setCompleting] = useState(null);
+    const [filter, setFilter] = useState('ALL');
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -54,6 +71,11 @@ const OrderQueuePage = () => {
 
     const currentToken = pendingOrders.length > 0 ? pendingOrders[0].tokenNumber : null;
     const lastCompleted = completedOrders.length > 0 ? completedOrders[0].tokenNumber : null;
+    const filteredPending = pendingOrders.filter(o => matchesFilter(o, filter));
+    const filteredCompleted = completedOrders.filter(o => matchesFilter(o, filter));
+    const filterLabel = filter === 'SHOT' ? 'Shot ' : filter === 'BLEND' ? 'Blend ' : '';
+    // In a filtered view, dim items that belong to the other station
+    const isItemDimmed = (item) => filter !== 'ALL' && !(filter === 'SHOT' ? isShotItem(item) : isBlendItem(item));
 
     return (
         <div>
@@ -80,17 +102,30 @@ const OrderQueuePage = () => {
                 </div>
             </div>
 
+            {/* Order Type Filter */}
+            <div className="queue-filter">
+                {FILTERS.map(f => (
+                    <button
+                        key={f.key}
+                        className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-outline'}`}
+                        onClick={() => setFilter(f.key)}
+                    >
+                        {f.label} ({pendingOrders.filter(o => matchesFilter(o, f.key)).length})
+                    </button>
+                ))}
+            </div>
+
             {/* Pending Orders */}
             <div className="queue-section">
-                <h3 className="queue-section-title">⏳ Pending Orders ({pendingOrders.length})</h3>
-                {pendingOrders.length === 0 ? (
+                <h3 className="queue-section-title">⏳ Pending {filterLabel}Orders ({filteredPending.length})</h3>
+                {filteredPending.length === 0 ? (
                     <div className="queue-empty">
                         <span className="queue-empty-icon">✅</span>
-                        <p>All orders delivered!</p>
+                        <p>{filter === 'ALL' ? 'All orders delivered!' : `No pending ${filterLabel.toLowerCase()}orders`}</p>
                     </div>
                 ) : (
                     <div className="queue-grid">
-                        {pendingOrders.map((order, index) => (
+                        {filteredPending.map((order, index) => (
                             <div key={order.id} className={`queue-card ${index === 0 ? 'queue-card-active' : ''}`}>
                                 <div className="queue-card-header">
                                     <span className="queue-card-token">#{order.tokenNumber}</span>
@@ -100,7 +135,7 @@ const OrderQueuePage = () => {
                                 </div>
                                 <div className="queue-card-items">
                                     {order.items?.map((item, i) => (
-                                        <div key={i} className="queue-card-item">
+                                        <div key={i} className={`queue-card-item ${isItemDimmed(item) ? 'queue-card-item-dimmed' : ''}`}>
                                             <span>{item.quantity}× {item.productName}</span>
                                         </div>
                                     ))}
@@ -128,11 +163,11 @@ const OrderQueuePage = () => {
             </div>
 
             {/* Recently Completed */}
-            {completedOrders.length > 0 && (
+            {filteredCompleted.length > 0 && (
                 <div className="queue-section">
                     <h3 className="queue-section-title">✅ Recently Delivered</h3>
                     <div className="queue-completed-list">
-                        {completedOrders.map(order => (
+                        {filteredCompleted.map(order => (
                             <div key={order.id} className="queue-completed-item">
                                 <span className="queue-completed-token">#{order.tokenNumber}</span>
                                 <span className="queue-completed-items">
