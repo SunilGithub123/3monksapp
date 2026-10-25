@@ -136,7 +136,7 @@ const OrderQueuePage = () => {
                                 <div className="queue-card-items">
                                     {order.items?.map((item, i) => (
                                         <div key={i} className={`queue-card-item ${isItemDimmed(item) ? 'queue-card-item-dimmed' : ''}`}>
-                                            <span>{item.quantity}× {item.productName}</span>
+                                            <span>{item.quantity}× {item.customization || item.productName}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -171,7 +171,7 @@ const OrderQueuePage = () => {
                             <div key={order.id} className="queue-completed-item">
                                 <span className="queue-completed-token">#{order.tokenNumber}</span>
                                 <span className="queue-completed-items">
-                                    {order.items?.map(i => `${i.quantity}× ${i.productName}`).join(', ')}
+                                    {order.items?.map(i => `${i.quantity}× ${i.customization || i.productName}`).join(', ')}
                                 </span>
                                 <span className="queue-completed-total">{formatCurrency(order.totalAmount)}</span>
                                 <span className="queue-completed-time">

@@ -159,7 +159,7 @@ const OrderHistoryPage = () => {
                     `${confirmCancel?.items?.length || 0} product(s) — raw material stock will be restored`,
                     `Payment mode: ${confirmCancel?.paymentMode}`,
                     `Status will change from COMPLETED → CANCELLED`,
-                    `Items: ${confirmCancel?.items?.map(i => i.productName + ' x' + i.quantity).join(', ') || ''}`
+                    `Items: ${confirmCancel?.items?.map(i => (i.customization || i.productName) + ' x' + i.quantity).join(', ') || ''}`
                 ]}
                 confirmText="Cancel Order"
             />
