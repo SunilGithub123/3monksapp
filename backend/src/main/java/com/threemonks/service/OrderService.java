@@ -5,6 +5,8 @@ import com.threemonks.entity.*;
 import com.threemonks.enums.OrderStatus;
 import com.threemonks.enums.ProductCategory;
 import com.threemonks.enums.Role;
+import com.threemonks.enums.Station;
+import com.threemonks.enums.StationStatus;
 import com.threemonks.exception.BadRequestException;
 import com.threemonks.exception.ResourceNotFoundException;
 import com.threemonks.exception.UnauthorizedException;
@@ -103,6 +105,8 @@ public class OrderService {
             }
         }
 
+        order.setShotStatus(hasItems(order, Station.SHOT) ? StationStatus.PENDING : StationStatus.NOT_REQUIRED);
+        order.setBlendStatus(hasItems(order, Station.BLEND) ? StationStatus.PENDING : StationStatus.NOT_REQUIRED);
         order.setParcel(parcel);
         order.setParcelCharge(parcelCharge);
         order.setTotalAmount(total.add(parcelCharge));
@@ -192,7 +196,43 @@ public class OrderService {
 
     @Transactional
     public OrderResponse completeOrder(Long id, UserPrincipal currentUser) {
-        Order order = orderRepository.findById(id)
+        Order order = findPendingForUpdate(id, currentUser);
+
+        // Whole-order handover: every station still pending is done now
+        LocalDateTime now = LocalDateTime.now();
+        for (Station station : Station.values()) {
+            if (stationStatus(order, station) == StationStatus.PENDING) {
+                setStationDone(order, station, now);
+            }
+        }
+        order.setStatus(OrderStatus.COMPLETED);
+        return toResponse(orderRepository.save(order));
+    }
+
+    @Transactional
+    public OrderResponse completeStation(Long id, Station station, UserPrincipal currentUser) {
+        Order order = findPendingForUpdate(id, currentUser);
+
+        StationStatus current = stationStatus(order, station);
+        if (current == StationStatus.NOT_REQUIRED) {
+            throw new BadRequestException("This order has no " + station.name().toLowerCase() + " items");
+        }
+        if (current == StationStatus.DONE) {
+            throw new BadRequestException("This station is already done for this order");
+        }
+        setStationDone(order, station, LocalDateTime.now());
+
+        // Store derived values too, so legacy orders get explicit statuses
+        order.setShotStatus(stationStatus(order, Station.SHOT));
+        order.setBlendStatus(stationStatus(order, Station.BLEND));
+        if (order.getShotStatus() != StationStatus.PENDING && order.getBlendStatus() != StationStatus.PENDING) {
+            order.setStatus(OrderStatus.COMPLETED);
+        }
+        return toResponse(orderRepository.save(order));
+    }
+
+    private Order findPendingForUpdate(Long id, UserPrincipal currentUser) {
+        Order order = orderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Order", "id", id));
         validateShopAccess(order.getShop().getId(), currentUser);
 
@@ -202,9 +242,38 @@ public class OrderService {
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new BadRequestException("Cannot complete a cancelled order");
         }
+        return order;
+    }
 
-        order.setStatus(OrderStatus.COMPLETED);
-        return toResponse(orderRepository.save(order));
+    private void setStationDone(Order order, Station station, LocalDateTime at) {
+        if (station == Station.SHOT) {
+            order.setShotStatus(StationStatus.DONE);
+            order.setShotCompletedAt(at);
+        } else {
+            order.setBlendStatus(StationStatus.DONE);
+            order.setBlendCompletedAt(at);
+        }
+    }
+
+    private static boolean belongsTo(Product product, Station station) {
+        boolean shot = product.getCategory() == ProductCategory.SHOT;
+        return station == Station.SHOT ? shot : !shot;
+    }
+
+    private static boolean hasItems(Order order, Station station) {
+        return order.getItems().stream().anyMatch(item -> belongsTo(item.getProduct(), station));
+    }
+
+    // Stored status, or for orders created before stations existed, derived from items and order status
+    private static StationStatus stationStatus(Order order, Station station) {
+        StationStatus stored = station == Station.SHOT ? order.getShotStatus() : order.getBlendStatus();
+        if (stored != null) {
+            return stored;
+        }
+        if (!hasItems(order, station)) {
+            return StationStatus.NOT_REQUIRED;
+        }
+        return order.getStatus() == OrderStatus.COMPLETED ? StationStatus.DONE : StationStatus.PENDING;
     }
 
     @Transactional
@@ -268,6 +337,10 @@ public class OrderService {
                 .parcelCharge(order.getParcelCharge() != null ? order.getParcelCharge() : BigDecimal.ZERO)
                 .paymentMode(order.getPaymentMode())
                 .status(order.getStatus())
+                .shotStatus(stationStatus(order, Station.SHOT))
+                .blendStatus(stationStatus(order, Station.BLEND))
+                .shotCompletedAt(order.getShotCompletedAt())
+                .blendCompletedAt(order.getBlendCompletedAt())
                 .customerName(order.getCustomerName())
                 .customerPhone(order.getCustomerPhone())
                 .orderDate(order.getOrderDate())

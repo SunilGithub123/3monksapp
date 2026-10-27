@@ -98,6 +98,7 @@ export const orderService = {
     getOrdersByRange: (shopId, from, to) => api.get('/api/orders/range', { params: { shopId, from, to } }),
     cancelOrder: (id) => api.patch(`/api/orders/${id}/cancel`),
     completeOrder: (id) => api.patch(`/api/orders/${id}/complete`),
+    completeStation: (id, station) => api.patch(`/api/orders/${id}/complete-station`, null, { params: { station } }),
 };
 
 export const dashboardService = {

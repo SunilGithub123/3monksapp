@@ -4,29 +4,47 @@ import { orderService } from '../services/dataService';
 import { formatCurrency } from '../utils/helpers';
 import toast from 'react-hot-toast';
 
-const FILTERS = [
-    { key: 'ALL', label: 'All' },
-    { key: 'SHOT', label: '⚡ Shots' },
-    { key: 'BLEND', label: '🥤 Blends' },
-];
-
+// Anything that is not a shot (creamy/curated blends) is made at the blends station
 const isShotItem = (item) => item.productCategory === 'SHOT';
-const isBlendItem = (item) => item.productCategory === 'CREAMY_BLEND' || item.productCategory === 'CURATED_BLEND';
+const isBlendItem = (item) => item.productCategory !== 'SHOT';
 
-// An order matches a filter if it contains at least one item of that type
-const matchesFilter = (order, filter) => {
-    if (filter === 'ALL') return true;
-    const check = filter === 'SHOT' ? isShotItem : isBlendItem;
-    return (order.items || []).some(check);
+const STATIONS = {
+    ALL: { label: '📋 All Orders' },
+    SHOT: { label: '⚡ Shots', name: 'Shots', icon: '⚡', statusKey: 'shotStatus', doneAtKey: 'shotCompletedAt', isItem: isShotItem },
+    BLEND: { label: '🥤 Blends', name: 'Blends', icon: '🥤', statusKey: 'blendStatus', doneAtKey: 'blendCompletedAt', isItem: isBlendItem },
+};
+const STATION_KEY = 'orderQueueStation';
+
+// Each device remembers its station (e.g. the shots counter tablet)
+const loadStation = () => {
+    try {
+        const saved = localStorage.getItem(STATION_KEY);
+        return STATIONS[saved] ? saved : 'ALL';
+    } catch (_) {
+        return 'ALL';
+    }
+};
+
+const formatTime = (date) => new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+const itemLabel = (item) => `${item.quantity}× ${item.customization || item.productName}`;
+
+const StationBadge = ({ station, order }) => {
+    const status = order[STATIONS[station].statusKey];
+    if (status === 'NOT_REQUIRED') return null;
+    return (
+        <span className={`badge ${status === 'DONE' ? 'badge-success' : 'badge-warning'} queue-station-badge`}>
+            {STATIONS[station].icon} {STATIONS[station].name} {status === 'DONE' ? '✓' : '⏳'}
+        </span>
+    );
 };
 
 const OrderQueuePage = () => {
     const { user } = useAuth();
     const [pendingOrders, setPendingOrders] = useState([]);
-    const [completedOrders, setCompletedOrders] = useState([]);
+    const [todayOrders, setTodayOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [completing, setCompleting] = useState(null);
-    const [filter, setFilter] = useState('ALL');
+    const [station, setStation] = useState(loadStation);
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -35,11 +53,7 @@ const OrderQueuePage = () => {
                 orderService.getTodayOrders(user?.shopId),
             ]);
             setPendingOrders(pendingRes.data.data || []);
-            // Filter today's completed orders (most recent first, limit 20)
-            const completed = (todayRes.data.data || [])
-                .filter(o => o.status === 'COMPLETED')
-                .slice(0, 20);
-            setCompletedOrders(completed);
+            setTodayOrders(todayRes.data.data || []);
         } catch (err) {
             toast.error('Failed to load orders');
         } finally {
@@ -54,14 +68,31 @@ const OrderQueuePage = () => {
         return () => clearInterval(interval);
     }, [fetchOrders]);
 
-    const handleComplete = async (orderId) => {
-        setCompleting(orderId);
+    const selectStation = (key) => {
+        setStation(key);
+        try { localStorage.setItem(STATION_KEY, key); } catch (_) { /* not persisted */ }
+    };
+
+    const handleComplete = async (order) => {
+        setCompleting(order.id);
         try {
-            await orderService.completeOrder(orderId);
-            toast.success('Order delivered!');
+            if (station === 'ALL') {
+                await orderService.completeOrder(order.id);
+                toast.success(`Order #${order.tokenNumber} delivered!`);
+            } else {
+                const res = await orderService.completeStation(order.id, station);
+                const updated = res.data.data;
+                if (updated?.status === 'COMPLETED') {
+                    toast.success(`Order #${order.tokenNumber} delivered!`);
+                } else {
+                    const other = station === 'SHOT' ? 'BLEND' : 'SHOT';
+                    toast.success(`${STATIONS[station].name} done for #${order.tokenNumber}, waiting for ${STATIONS[other].name.toLowerCase()}`);
+                }
+            }
             fetchOrders();
         } catch (err) {
             toast.error(err.response?.data?.message || 'Failed to mark as delivered');
+            fetchOrders();
         } finally {
             setCompleting(null);
         }
@@ -69,13 +100,25 @@ const OrderQueuePage = () => {
 
     if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
-    const currentToken = pendingOrders.length > 0 ? pendingOrders[0].tokenNumber : null;
-    const lastCompleted = completedOrders.length > 0 ? completedOrders[0].tokenNumber : null;
-    const filteredPending = pendingOrders.filter(o => matchesFilter(o, filter));
-    const filteredCompleted = completedOrders.filter(o => matchesFilter(o, filter));
-    const filterLabel = filter === 'SHOT' ? 'Shot ' : filter === 'BLEND' ? 'Blend ' : '';
-    // In a filtered view, dim items that belong to the other station
-    const isItemDimmed = (item) => filter !== 'ALL' && !(filter === 'SHOT' ? isShotItem(item) : isBlendItem(item));
+    const config = STATIONS[station];
+    const isStationView = station !== 'ALL';
+    const queueFor = (key) => key === 'ALL'
+        ? pendingOrders
+        : pendingOrders.filter(o => o[STATIONS[key].statusKey] === 'PENDING');
+    const queue = queueFor(station);
+
+    // Most recent first, limit 20
+    const doneList = (isStationView
+        ? todayOrders
+            .filter(o => o[config.doneAtKey])
+            .sort((a, b) => new Date(b[config.doneAtKey]) - new Date(a[config.doneAtKey]))
+        : todayOrders.filter(o => o.status === 'COMPLETED')
+    ).slice(0, 20);
+
+    const visibleItems = (order) => isStationView ? (order.items || []).filter(config.isItem) : (order.items || []);
+    const currentToken = queue.length > 0 ? queue[0].tokenNumber : null;
+    const lastDone = doneList.length > 0 ? doneList[0].tokenNumber : null;
+    const otherStation = station === 'SHOT' ? 'BLEND' : 'SHOT';
 
     return (
         <div>
@@ -86,6 +129,19 @@ const OrderQueuePage = () => {
                 </button>
             </div>
 
+            {/* Station selector */}
+            <div className="queue-filter">
+                {Object.entries(STATIONS).map(([key, s]) => (
+                    <button
+                        key={key}
+                        className={`btn btn-sm ${station === key ? 'btn-primary' : 'btn-outline'}`}
+                        onClick={() => selectStation(key)}
+                    >
+                        {s.label} ({queueFor(key).length})
+                    </button>
+                ))}
+            </div>
+
             {/* Token Counter Display */}
             <div className="queue-token-display">
                 <div className="queue-token-card queue-token-now">
@@ -93,55 +149,47 @@ const OrderQueuePage = () => {
                     <div className="queue-token-number">{currentToken ? `#${currentToken}` : '—'}</div>
                 </div>
                 <div className="queue-token-card queue-token-last">
-                    <div className="queue-token-label">Last Delivered</div>
-                    <div className="queue-token-number">{lastCompleted ? `#${lastCompleted}` : '—'}</div>
+                    <div className="queue-token-label">{isStationView ? 'Last Handed Over' : 'Last Delivered'}</div>
+                    <div className="queue-token-number">{lastDone ? `#${lastDone}` : '—'}</div>
                 </div>
                 <div className="queue-token-card queue-token-pending">
                     <div className="queue-token-label">In Queue</div>
-                    <div className="queue-token-number">{pendingOrders.length}</div>
+                    <div className="queue-token-number">{queue.length}</div>
                 </div>
-            </div>
-
-            {/* Order Type Filter */}
-            <div className="queue-filter">
-                {FILTERS.map(f => (
-                    <button
-                        key={f.key}
-                        className={`btn btn-sm ${filter === f.key ? 'btn-primary' : 'btn-outline'}`}
-                        onClick={() => setFilter(f.key)}
-                    >
-                        {f.label} ({pendingOrders.filter(o => matchesFilter(o, f.key)).length})
-                    </button>
-                ))}
             </div>
 
             {/* Pending Orders */}
             <div className="queue-section">
-                <h3 className="queue-section-title">⏳ Pending {filterLabel}Orders ({filteredPending.length})</h3>
-                {filteredPending.length === 0 ? (
+                <h3 className="queue-section-title">
+                    ⏳ {isStationView ? `${config.name} Queue` : 'Pending Orders'} ({queue.length})
+                </h3>
+                {queue.length === 0 ? (
                     <div className="queue-empty">
                         <span className="queue-empty-icon">✅</span>
-                        <p>{filter === 'ALL' ? 'All orders delivered!' : `No pending ${filterLabel.toLowerCase()}orders`}</p>
+                        <p>{isStationView ? `No pending ${config.name.toLowerCase()}!` : 'All orders delivered!'}</p>
                     </div>
                 ) : (
                     <div className="queue-grid">
-                        {filteredPending.map((order, index) => (
+                        {queue.map((order, index) => (
                             <div key={order.id} className={`queue-card ${index === 0 ? 'queue-card-active' : ''}`}>
                                 <div className="queue-card-header">
                                     <span className="queue-card-token">
                                         #{order.tokenNumber}
                                         {order.parcel && <span className="badge badge-warning queue-parcel-badge">🛍️ Parcel</span>}
                                     </span>
-                                    <span className="queue-card-time">
-                                        {new Date(order.orderDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
+                                    <span className="queue-card-time">{formatTime(order.orderDate)}</span>
                                 </div>
                                 <div className="queue-card-items">
-                                    {order.items?.map((item, i) => (
-                                        <div key={i} className={`queue-card-item ${isItemDimmed(item) ? 'queue-card-item-dimmed' : ''}`}>
-                                            <span>{item.quantity}× {item.customization || item.productName}</span>
+                                    {visibleItems(order).map((item, i) => (
+                                        <div key={i} className="queue-card-item">
+                                            <span>{itemLabel(item)}</span>
                                         </div>
                                     ))}
+                                </div>
+                                <div className="queue-card-stations">
+                                    {isStationView
+                                        ? <StationBadge station={otherStation} order={order} />
+                                        : <><StationBadge station="SHOT" order={order} /><StationBadge station="BLEND" order={order} /></>}
                                 </div>
                                 {order.customerName && (
                                     <div className="queue-card-customer">👤 {order.customerName}</div>
@@ -154,10 +202,12 @@ const OrderQueuePage = () => {
                                 </div>
                                 <button
                                     className="btn btn-primary queue-deliver-btn"
-                                    onClick={() => handleComplete(order.id)}
+                                    onClick={() => handleComplete(order)}
                                     disabled={completing === order.id}
                                 >
-                                    {completing === order.id ? '⏳ Processing...' : '✅ Mark Delivered'}
+                                    {completing === order.id
+                                        ? '⏳ Processing...'
+                                        : isStationView ? `✅ ${config.name} Handed Over` : '✅ Complete Whole Order'}
                                 </button>
                             </div>
                         ))}
@@ -166,19 +216,21 @@ const OrderQueuePage = () => {
             </div>
 
             {/* Recently Completed */}
-            {filteredCompleted.length > 0 && (
+            {doneList.length > 0 && (
                 <div className="queue-section">
-                    <h3 className="queue-section-title">✅ Recently Delivered</h3>
+                    <h3 className="queue-section-title">
+                        ✅ {isStationView ? `Recently Handed Over (${config.name})` : 'Recently Delivered'}
+                    </h3>
                     <div className="queue-completed-list">
-                        {filteredCompleted.map(order => (
+                        {doneList.map(order => (
                             <div key={order.id} className="queue-completed-item">
                                 <span className="queue-completed-token">#{order.tokenNumber}</span>
                                 <span className="queue-completed-items">
-                                    {order.items?.map(i => `${i.quantity}× ${i.customization || i.productName}`).join(', ')}
+                                    {visibleItems(order).map(itemLabel).join(', ')}
                                 </span>
                                 <span className="queue-completed-total">{formatCurrency(order.totalAmount)}</span>
                                 <span className="queue-completed-time">
-                                    {new Date(order.orderDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                    {formatTime(isStationView ? order[config.doneAtKey] : order.orderDate)}
                                 </span>
                             </div>
                         ))}

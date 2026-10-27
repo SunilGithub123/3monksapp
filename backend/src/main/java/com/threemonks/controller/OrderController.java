@@ -1,6 +1,7 @@
 package com.threemonks.controller;
 
 import com.threemonks.dto.*;
+import com.threemonks.enums.Station;
 import com.threemonks.service.OrderService;
 import com.threemonks.security.UserPrincipal;
 import jakarta.validation.Valid;
@@ -83,6 +84,14 @@ public class OrderController {
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal currentUser) {
         return ResponseEntity.ok(ApiResponse.success("Order delivered", orderService.completeOrder(id, currentUser)));
+    }
+
+    @PatchMapping("/{id}/complete-station")
+    public ResponseEntity<ApiResponse<OrderResponse>> completeStation(
+            @PathVariable Long id,
+            @RequestParam Station station,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(ApiResponse.success("Station done", orderService.completeStation(id, station, currentUser)));
     }
 
     @PatchMapping("/{id}/cancel")

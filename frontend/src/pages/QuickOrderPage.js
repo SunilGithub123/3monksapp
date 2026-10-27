@@ -500,13 +500,28 @@ const QuickOrderPage = () => {
                                 {pendingOrders.map((o, idx) => (
                                     <div key={o.id} className={`quick-queue-item ${idx === 0 ? 'quick-queue-item-active' : ''}`}>
                                         <div className="quick-queue-item-header">
-                                            <span className="quick-queue-item-token">#{o.tokenNumber}</span>
+                                            <span className="quick-queue-item-token">
+                                                #{o.tokenNumber}
+                                                {o.parcel && <span className="badge badge-warning queue-parcel-badge">🛍️</span>}
+                                            </span>
                                             <span className="quick-queue-item-time">
                                                 {new Date(o.orderDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
                                         <div className="quick-queue-item-detail">
-                                            {o.items?.map(i => `${i.quantity}× ${i.productName}`).join(', ')}
+                                            {o.items?.map(i => `${i.quantity}× ${i.customization || i.productName}`).join(', ')}
+                                        </div>
+                                        <div className="queue-card-stations">
+                                            {o.shotStatus !== 'NOT_REQUIRED' && (
+                                                <span className={`badge ${o.shotStatus === 'DONE' ? 'badge-success' : 'badge-warning'} queue-station-badge`}>
+                                                    ⚡ {o.shotStatus === 'DONE' ? '✓' : '⏳'}
+                                                </span>
+                                            )}
+                                            {o.blendStatus !== 'NOT_REQUIRED' && (
+                                                <span className={`badge ${o.blendStatus === 'DONE' ? 'badge-success' : 'badge-warning'} queue-station-badge`}>
+                                                    🥤 {o.blendStatus === 'DONE' ? '✓' : '⏳'}
+                                                </span>
+                                            )}
                                         </div>
                                         <button
                                             className="btn btn-sm btn-primary quick-queue-done-btn"

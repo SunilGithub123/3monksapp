@@ -2,6 +2,7 @@ package com.threemonks.entity;
 
 import com.threemonks.enums.OrderStatus;
 import com.threemonks.enums.PaymentMode;
+import com.threemonks.enums.StationStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -45,6 +46,17 @@ public class Order {
 
     @Column(precision = 10, scale = 2)
     private BigDecimal parcelCharge;
+
+    // Per-station handover progress; the order completes once no station is PENDING.
+    // Null on orders created before stations existed (derived from items instead).
+    @Enumerated(EnumType.STRING)
+    private StationStatus shotStatus;
+
+    @Enumerated(EnumType.STRING)
+    private StationStatus blendStatus;
+
+    private LocalDateTime shotCompletedAt;
+    private LocalDateTime blendCompletedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

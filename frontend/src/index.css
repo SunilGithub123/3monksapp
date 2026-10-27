@@ -3741,8 +3741,15 @@ tr:last-child td {
     margin-bottom: 16px;
 }
 
-.queue-card-item-dimmed {
-    opacity: 0.4;
+.queue-card-stations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0;
+}
+
+.queue-station-badge {
+    font-size: 11px;
 }
 
 .queue-section-title {

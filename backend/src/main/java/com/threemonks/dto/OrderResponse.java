@@ -2,6 +2,7 @@ package com.threemonks.dto;
 
 import com.threemonks.enums.OrderStatus;
 import com.threemonks.enums.PaymentMode;
+import com.threemonks.enums.StationStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -23,6 +24,10 @@ public class OrderResponse {
     private BigDecimal parcelCharge;
     private PaymentMode paymentMode;
     private OrderStatus status;
+    private StationStatus shotStatus;
+    private StationStatus blendStatus;
+    private LocalDateTime shotCompletedAt;
+    private LocalDateTime blendCompletedAt;
     private String customerName;
     private String customerPhone;
     private LocalDateTime orderDate;
