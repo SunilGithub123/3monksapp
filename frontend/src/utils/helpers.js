@@ -44,6 +44,22 @@ export const getISTDateString = (daysAgo = 0) => {
     return new Date(at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
 
+// Business date (YYYY-MM-DD) of a server timestamp. The server sends shop-local (IST)
+// times without an offset, so they are read as IST.
+export const getBusinessDateOf = (serverTime) => {
+    if (!serverTime) return null;
+    const s = String(serverTime).replace(' ', 'T');
+    const at = new Date(/([zZ]|[+-]\d\d:?\d\d)$/.test(s) ? s : `${s}+05:30`).getTime();
+    return new Date(at - businessDayStartHour * 3600000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+// An order placed on an earlier business day than today (left over in the queue)
+export const isFromEarlierDay = (order) => !!order?.businessDate && order.businessDate < getISTDateString();
+
+// "5 Nov" for a YYYY-MM-DD date
+export const formatShortDate = (date) =>
+    new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
 // Current business month (YYYY-MM)
 export const getISTMonthString = () => {
     return getISTDateString().slice(0, 7);

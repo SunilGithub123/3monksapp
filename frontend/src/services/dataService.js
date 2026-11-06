@@ -106,6 +106,8 @@ export const orderService = {
     getShopOrders: (shopId) => api.get('/api/orders', { params: { shopId } }),
     getTodayOrders: (shopId) => api.get('/api/orders/today', { params: { shopId } }),
     getPendingOrders: (shopId) => api.get('/api/orders/pending', { params: { shopId } }),
+    // Handed over today, including left-over orders from earlier days (Order Queue)
+    getHandedOverToday: (shopId) => api.get('/api/orders/handed-over-today', { params: { shopId } }),
     getOrdersByRange: (shopId, from, to) => api.get('/api/orders/range', { params: { shopId, from, to } }),
     cancelOrder: (id) => api.patch(`/api/orders/${id}/cancel`),
     completeOrder: (id) => api.patch(`/api/orders/${id}/complete`),

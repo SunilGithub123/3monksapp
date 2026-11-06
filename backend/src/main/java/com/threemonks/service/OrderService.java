@@ -173,12 +173,24 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    // All pending orders, including ones left over from earlier days: they stay in the queue
+    // until someone completes or cancels them. They still count on the day they were placed.
     public List<OrderResponse> getPendingOrders(Long shopId, UserPrincipal currentUser) {
         Long resolvedShopId = resolveShopId(shopId, currentUser);
         validateShopAccess(resolvedShopId, currentUser);
-        LocalDateTime startOfDay = BusinessDay.start(BusinessDay.today());
-        LocalDateTime endOfDay = BusinessDay.end(BusinessDay.today());
-        return orderRepository.findTodayPendingOrdersByShopId(resolvedShopId, startOfDay, endOfDay).stream()
+        return orderRepository.findPendingOrdersByShopId(resolvedShopId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Orders handed over during today's business day (by either station), including
+    // left-over orders from earlier days, for the queue's "recently delivered" lists
+    public List<OrderResponse> getHandedOverToday(Long shopId, UserPrincipal currentUser) {
+        Long resolvedShopId = resolveShopId(shopId, currentUser);
+        validateShopAccess(resolvedShopId, currentUser);
+        LocalDate today = BusinessDay.today();
+        return orderRepository.findHandedOverByShopId(resolvedShopId, BusinessDay.start(today), BusinessDay.end(today))
+                .stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }
@@ -373,6 +385,7 @@ public class OrderService {
                 .customerName(order.getCustomerName())
                 .customerPhone(order.getCustomerPhone())
                 .orderDate(order.getOrderDate())
+                .businessDate(order.getOrderDate() != null ? BusinessDay.dateOf(order.getOrderDate()) : null)
                 .tokenNumber(order.getTokenNumber())
                 .build();
     }

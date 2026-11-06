@@ -31,5 +31,7 @@ public class OrderResponse {
     private String customerName;
     private String customerPhone;
     private LocalDateTime orderDate;
+    /** The business day the order counts towards (late-night orders belong to the evening before). */
+    private java.time.LocalDate businessDate;
     private Integer tokenNumber;
 }

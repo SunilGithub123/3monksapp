@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { publicService, orderService } from '../services/dataService';
 import useOrderEvents from '../hooks/useOrderEvents';
-import { formatCurrency, getParcelCharge, PARCEL_CHARGES } from '../utils/helpers';
+import { formatCurrency, getParcelCharge, PARCEL_CHARGES, isFromEarlierDay, formatShortDate } from '../utils/helpers';
 import Receipt from '../components/Receipt';
 import toast from 'react-hot-toast';
 import {
@@ -510,6 +510,9 @@ const QuickOrderPage = () => {
                                             <span className="quick-queue-item-token">
                                                 #{o.tokenNumber}
                                                 {o.parcel && <span className="badge badge-warning queue-parcel-badge">🛍️</span>}
+                                                {isFromEarlierDay(o) && (
+                                                    <span className="badge badge-danger queue-earlier-badge">📅 {formatShortDate(o.businessDate)}</span>
+                                                )}
                                             </span>
                                             <span className="quick-queue-item-time">
                                                 {new Date(o.orderDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}

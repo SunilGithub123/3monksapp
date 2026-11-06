@@ -71,8 +71,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
         @Query("SELECT o FROM Order o WHERE o.status = 'PENDING' AND o.reminderSentAt IS NULL AND o.orderDate BETWEEN :oldest AND :due")
         List<Order> findDueForReminder(@Param("oldest") LocalDateTime oldest, @Param("due") LocalDateTime due);
 
-        @Query("SELECT o FROM Order o WHERE o.shop.id = :shopId AND o.orderDate BETWEEN :start AND :end AND o.status = 'PENDING' ORDER BY o.tokenNumber ASC")
-        List<Order> findTodayPendingOrdersByShopId(@Param("shopId") Long shopId, @Param("start") LocalDateTime start,
+        // Every pending order of a branch, whatever day it was placed, oldest first, so nothing is left behind
+        @Query("SELECT o FROM Order o WHERE o.shop.id = :shopId AND o.status = 'PENDING' ORDER BY o.orderDate ASC, o.tokenNumber ASC")
+        List<Order> findPendingOrdersByShopId(@Param("shopId") Long shopId);
+
+        // Orders a station handed over in the window, whatever day they were placed
+        @Query("SELECT o FROM Order o WHERE o.shop.id = :shopId AND ((o.shotCompletedAt BETWEEN :start AND :end) "
+                        + "OR (o.blendCompletedAt BETWEEN :start AND :end)) ORDER BY o.orderDate DESC")
+        List<Order> findHandedOverByShopId(@Param("shopId") Long shopId, @Param("start") LocalDateTime start,
                         @Param("end") LocalDateTime end);
 
         /**

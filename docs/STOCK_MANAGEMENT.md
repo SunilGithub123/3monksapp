@@ -200,3 +200,18 @@ shown as they happened, and website franchise enquiries keep calendar dates.
 
 The hour is a setting: `BUSINESS_DAY_START_HOUR` (0–12, default 3), GitHub
 variable of the same name.
+
+## Order Queue: left-over pending orders
+
+The Order Queue (and the Quick Order queue panel) shows **every pending order of the
+branch, whatever day it was placed**, oldest first, so nothing is dropped at 3 AM.
+An order from an earlier business day shows a red **📅 From 5 Nov** label instead of
+the minutes counter, and stays until someone completes or cancels it.
+
+Completing it later never moves it: all reports use the time the order was placed
+(`order_date`), so it counts on the day it was ordered and paid. Daily Collection
+and the dashboard already include it while it is pending; reports that count
+delivered orders only (Analytics, profit & loss, salary sheet, the email's Sales)
+add it to its own day once it is completed. When completed, it is listed under
+**Recently Delivered** for the day it was handed over, with its "From" label
+(`GET /api/orders/handed-over-today`).

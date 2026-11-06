@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { orderService, adminService } from '../services/dataService';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getISTDateString, getBusinessDateOf, isFromEarlierDay, formatShortDate } from '../utils/helpers';
 import toast from 'react-hot-toast';
 import useOrderEvents from '../hooks/useOrderEvents';
 import { isIos, isStandalone, isPushSupported, getPushSubscription, enablePush, syncPush, disablePush } from '../services/push';
@@ -136,7 +136,7 @@ const OrderQueuePage = () => {
         try {
             const [pendingRes, todayRes, stationRes] = await Promise.all([
                 orderService.getPendingOrders(queueShopId),
-                orderService.getTodayOrders(queueShopId),
+                orderService.getHandedOverToday(queueShopId),
                 orderService.getMyStation().catch(() => null),
             ]);
             if (seq !== requestSeq.current) return;
@@ -329,13 +329,15 @@ const OrderQueuePage = () => {
     const queueFor = (key) => stationQueue(pendingOrders, key);
     const queue = queueFor(station);
 
-    // Most recent first, limit 20
+    // Handed over today (including left-over orders from earlier days), most recent first, limit 20
+    const today = getISTDateString();
+    const doneAt = (o) => isStationView
+        ? o[config.doneAtKey]
+        : [o.shotCompletedAt, o.blendCompletedAt].filter(Boolean).sort().pop();
     const doneList = (isStationView
-        ? todayOrders
-            .filter(o => o[config.doneAtKey])
-            .sort((a, b) => new Date(b[config.doneAtKey]) - new Date(a[config.doneAtKey]))
-        : todayOrders.filter(o => o.status === 'COMPLETED')
-    ).slice(0, 20);
+        ? todayOrders.filter(o => o[config.doneAtKey] && getBusinessDateOf(o[config.doneAtKey]) === today)
+        : todayOrders.filter(o => o.status === 'COMPLETED' && getBusinessDateOf(doneAt(o)) === today)
+    ).sort((a, b) => parseServerTime(doneAt(b)) - parseServerTime(doneAt(a))).slice(0, 20);
 
     const visibleItems = (order) => isStationView ? (order.items || []).filter(config.isItem) : (order.items || []);
     const currentToken = queue.length > 0 ? queue[0].tokenNumber : null;
@@ -436,6 +438,8 @@ const OrderQueuePage = () => {
                         {queue.map((order, index) => {
                             const waited = minutesWaiting(order);
                             const overdue = waited >= REMINDER_MINUTES;
+                            // Left over from an earlier day: stays until completed or cancelled
+                            const earlier = isFromEarlierDay(order);
                             const isNew = (newUntil.get(order.id) || 0) > Date.now();
                             return (
                             <div
@@ -449,10 +453,15 @@ const OrderQueuePage = () => {
                                     </span>
                                     <span className="queue-card-time">
                                         {isNew && <span className="badge badge-success queue-new-badge">NEW</span>}
+                                        {earlier && (
+                                            <span className="badge badge-danger queue-earlier-badge">📅 From {formatShortDate(order.businessDate)}</span>
+                                        )}
                                         {formatTime(order.orderDate)}
-                                        <span className={`queue-wait ${overdue ? 'queue-wait-overdue' : ''}`}>
-                                            {overdue ? '⏰ ' : ''}{waited} min
-                                        </span>
+                                        {!earlier && (
+                                            <span className={`queue-wait ${overdue ? 'queue-wait-overdue' : ''}`}>
+                                                {overdue ? '⏰ ' : ''}{waited} min
+                                            </span>
+                                        )}
                                     </span>
                                 </div>
                                 <div className="queue-card-items">
@@ -501,7 +510,12 @@ const OrderQueuePage = () => {
                     <div className="queue-completed-list">
                         {doneList.map(order => (
                             <div key={order.id} className="queue-completed-item">
-                                <span className="queue-completed-token">#{order.tokenNumber}</span>
+                                <span className="queue-completed-token">
+                                    #{order.tokenNumber}
+                                    {isFromEarlierDay(order) && (
+                                        <span className="badge badge-danger queue-earlier-badge">📅 From {formatShortDate(order.businessDate)}</span>
+                                    )}
+                                </span>
                                 <span className="queue-completed-items">
                                     {visibleItems(order).map(itemLabel).join(', ')}
                                 </span>

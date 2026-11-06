@@ -77,6 +77,14 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(orderService.getPendingOrders(shopId, currentUser)));
     }
 
+    // Orders handed over today, including left-over orders from earlier days (Order Queue)
+    @GetMapping("/handed-over-today")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getHandedOverToday(
+            @RequestParam(required = false) Long shopId,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(ApiResponse.success(orderService.getHandedOverToday(shopId, currentUser)));
+    }
+
     @GetMapping("/range")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrdersByRange(
             @RequestParam(required = false) Long shopId,

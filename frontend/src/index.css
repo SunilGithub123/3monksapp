@@ -3350,6 +3350,14 @@ tr:last-child td {
     vertical-align: middle;
 }
 
+/* Order left over from an earlier business day */
+.queue-earlier-badge {
+    margin-left: 6px;
+    font-size: 11px;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
 .receipt-parcel {
     text-align: center;
     font-weight: 700;
