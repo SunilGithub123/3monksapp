@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,13 +45,41 @@ public class WhatsAppClient {
 
     /** Sends one text message (the caller keeps it under {@link #MAX_TEXT}). */
     public boolean sendText(String to, String body) {
+        return send(to, Map.of(
+                "messaging_product", "whatsapp",
+                "recipient_type", "individual",
+                "to", to,
+                "type", "text",
+                "text", Map.of("preview_url", false, "body", body)));
+    }
+
+    /**
+     * Sends the tap menu (a WhatsApp list message). Tapping a row sends its id back
+     * to the bot like a typed command. rows: {id, title, description}.
+     */
+    public boolean sendMenu(String to, List<String[]> rows) {
+        List<Map<String, String>> items = rows.stream()
+                .map(r -> Map.of("id", r[0], "title", r[1], "description", r[2]))
+                .toList();
+        return send(to, Map.of(
+                "messaging_product", "whatsapp",
+                "recipient_type", "individual",
+                "to", to,
+                "type", "interactive",
+                "interactive", Map.of(
+                        "type", "list",
+                        "header", Map.of("type", "text", "text", "3Monks Bot 🤖"),
+                        "body", Map.of("text", "Tap *Menu* and pick what you want to see, or type a command: "
+                                + "sales, yesterday-sales, sales 05-11, received, stock, low-stock, pending."),
+                        "footer", Map.of("text", "Type menu anytime to see this again"),
+                        "action", Map.of(
+                                "button", "Menu",
+                                "sections", List.of(Map.of("title", "3Monks", "rows", items))))));
+    }
+
+    private boolean send(String to, Map<String, Object> payload) {
         try {
-            String json = objectMapper.writeValueAsString(Map.of(
-                    "messaging_product", "whatsapp",
-                    "recipient_type", "individual",
-                    "to", to,
-                    "type", "text",
-                    "text", Map.of("preview_url", false, "body", body)));
+            String json = objectMapper.writeValueAsString(payload);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(graphBaseUrl + "/" + graphVersion + "/" + phoneNumberId + "/messages"))
                     .timeout(Duration.ofSeconds(15))

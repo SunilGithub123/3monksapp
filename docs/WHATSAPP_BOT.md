@@ -3,15 +3,21 @@
 Admins and branch managers send the bot a command on WhatsApp and get **live**
 figures back:
 
+Commands work with or without `/`, in any capitals, and with `-`, `_` or a
+space (`yesterday-sales`, `Yesterday Sales`, `/yesterday_sales`).
+
 | Command | Reply |
 |---|---|
-| `/sales` | Today's sales so far (business day, 3 AM cut-off): sales, orders, shots, blends, cash / UPI, cancelled, received & difference |
-| `/sales yesterday`, `/sales 05-11`, `/sales 2026-11-05` | Another day |
-| `/received` | Expected vs amount received (Daily Collection) |
-| `/stock` | Current stock, out-of-stock 🔴 and low 🟠 first |
-| `/low` | Only low / out-of-stock items |
-| `/pending` | Orders waiting in the queue, with how long |
-| `/help` (or anything else) | The command list |
+| `menu` (or `help`, `hi`, anything unknown) | The **tap menu**: a *Menu* button listing every option; tapping one runs it |
+| `sales` | Today's sales so far (business day, 3 AM cut-off): sales, orders, shots, blends, cash / UPI, cancelled, received & difference |
+| `yesterday-sales` | Yesterday's sales |
+| `sales 05-11`, `sales 2026-11-05` | Any day |
+| `received` / `yesterday-received` | Expected vs amount received (Daily Collection) |
+| `stock` | Current stock, out-of-stock 🔴 and low 🟠 first |
+| `low-stock` (or `low`) | Only low / out-of-stock items |
+| `pending` | Orders waiting in the queue, with how long |
+
+If the tap menu cannot be shown on someone's phone, the same list is sent as text.
 
 Admins see every branch, or one branch by adding part of its name
 (`/sales kharadi`, `/stock baner`). Managers always see only their own branch.

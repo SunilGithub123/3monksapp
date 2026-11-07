@@ -45,18 +45,34 @@ public class WhatsAppBotService {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH);
     private static final int MAX_PENDING_LINES = 25;
 
+    /** Text version of the menu (also the fallback if the tap menu can't be sent). */
     static final String HELP = """
             *3Monks Bot* 🤖
-            Send one of these:
+            Type a command (with or without /):
 
-            */sales* – today's sales so far
-            */sales yesterday* or */sales 05-11* – another day
-            */received* – amount received vs expected (today)
-            */stock* – current stock, low items first
-            */low* – only low / out-of-stock items
-            */pending* – orders waiting in the queue
-            */help* – this list
+            *sales* – today's sales so far
+            *yesterday-sales* – yesterday's sales
+            *sales 05-11* – any day
+            *received* – amount received vs expected today
+            *yesterday-received* – the same for yesterday
+            *stock* – current stock, low items first
+            *low-stock* – only low / out-of-stock items
+            *pending* – orders waiting in the queue
+            *menu* – show the menu
             """;
+
+    /** reply() returns this to show the tap menu instead of text. */
+    static final String MENU = "\u0000MENU";
+
+    /** Rows of the tap menu: command id, title (max 24 chars), description (max 72). */
+    static final List<String[]> MENU_ROWS = List.of(
+            new String[] {"sales", "Today's sales", "Sales, orders, shots & blends so far"},
+            new String[] {"yesterday-sales", "Yesterday's sales", "Full day: sales, orders, cash / UPI"},
+            new String[] {"received", "Amount received", "Received vs expected, today"},
+            new String[] {"yesterday-received", "Yesterday received", "Received vs expected, yesterday"},
+            new String[] {"stock", "Current stock", "All materials, low items first"},
+            new String[] {"low-stock", "Low / out of stock", "Only what needs reordering"},
+            new String[] {"pending", "Pending orders", "Orders waiting in the queue"});
 
     private final WhatsAppClient client;
     private final UserRepository userRepository;
@@ -113,6 +129,10 @@ public class WhatsAppBotService {
             try {
                 // One read-only transaction per reply, so branches and order items load
                 String answer = readOnly.execute(status -> reply(from, text));
+                if (MENU.equals(answer)) {
+                    if (!client.sendMenu(from, MENU_ROWS)) client.sendText(from, HELP);
+                    return;
+                }
                 for (String part : split(answer)) {
                     if (!client.sendText(from, part)) break;
                 }
@@ -135,18 +155,36 @@ public class WhatsAppBotService {
             return "This number isn't registered with 3Monks. Ask your admin to add your WhatsApp number to your user in the 3Monks app.";
         }
         List<String> words = new ArrayList<>(Arrays.asList(text.trim().toLowerCase(Locale.ROOT).split("\\s+")));
-        String command = words.isEmpty() ? "" : words.remove(0).replaceFirst("^/", "");
+        // "/sales", "sales", "Yesterday-Sales", "yesterday_sales" and "yesterday sales" all work
+        String command = words.isEmpty() ? "" : words.remove(0).replaceFirst("^/", "").replace('_', '-');
+        if (("yesterday".equals(command) || "today".equals(command)) && !words.isEmpty()) {
+            command = command + "-" + words.remove(0);
+        }
+        if (command.startsWith("yesterday-")) {
+            words.add(0, "yesterday");
+            command = command.substring("yesterday-".length());
+        } else if (command.startsWith("today-")) {
+            command = command.substring("today-".length());
+        }
+        command = switch (command) {
+            case "low", "low-stock", "lowstock" -> "low";
+            case "pending-orders", "orders", "queue" -> "pending";
+            case "receive", "collection" -> "received";
+            default -> command;
+        };
+        if (!List.of("sales", "received", "stock", "low", "pending").contains(command)) {
+            return MENU;    // "menu", "help", "hi" or anything unknown
+        }
         List<Shop> shops = shopsFor(user, words);
         if (shops.isEmpty()) {
-            return "No branch matches \"" + String.join(" ", words) + "\". Send */help* for the commands.";
+            return "No branch matches \"" + String.join(" ", words) + "\". Send *menu* for the commands.";
         }
         return switch (command) {
             case "sales" -> sales(shops, user, words, false);
             case "received" -> sales(shops, user, words, true);
             case "stock" -> stock(shops, false);
             case "low" -> stock(shops, true);
-            case "pending" -> pending(shops);
-            default -> HELP;
+            default -> pending(shops);
         };
     }
 

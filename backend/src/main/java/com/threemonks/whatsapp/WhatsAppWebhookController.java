@@ -67,10 +67,13 @@ public class WhatsAppWebhookController {
             for (JsonNode entry : root.path("entry")) {
                 for (JsonNode change : entry.path("changes")) {
                     for (JsonNode message : change.path("value").path("messages")) {
-                        // Text messages only; delivery receipts, media etc. are ignored
-                        if ("text".equals(message.path("type").asText())) {
-                            botService.handle(message.path("id").asText(), message.path("from").asText(),
-                                    message.path("text").path("body").asText());
+                        // Typed text, or a tap in the menu (its row id is the command);
+                        // delivery receipts, media etc. are ignored
+                        String type = message.path("type").asText();
+                        String text = "text".equals(type) ? message.path("text").path("body").asText()
+                                : "interactive".equals(type) ? interactiveId(message.path("interactive")) : null;
+                        if (text != null && !text.isBlank()) {
+                            botService.handle(message.path("id").asText(), message.path("from").asText(), text);
                         }
                     }
                 }
@@ -80,6 +83,11 @@ public class WhatsAppWebhookController {
         }
         // Always acknowledge quickly; replies are sent in the background
         return ResponseEntity.ok().build();
+    }
+
+    private static String interactiveId(JsonNode interactive) {
+        String id = interactive.path("list_reply").path("id").asText("");
+        return id.isEmpty() ? interactive.path("button_reply").path("id").asText("") : id;
     }
 
     private boolean validSignature(byte[] body, String header) {
