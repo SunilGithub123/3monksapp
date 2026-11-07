@@ -69,6 +69,15 @@ app:
     # towards the previous day in every screen, report, export, token number and email.
     start-hour: ${BUSINESS_DAY_START_HOUR:3}
 
+  whatsapp:
+    # WhatsApp bot (Meta Cloud API). Off until all four are set.
+    access-token: ${WHATSAPP_TOKEN:}
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+    app-secret: ${WHATSAPP_APP_SECRET:}
+    # Any secret word you choose; entered once in Meta's webhook settings
+    verify-token: ${WHATSAPP_VERIFY_TOKEN:}
+    graph-version: ${WHATSAPP_GRAPH_VERSION:v21.0}
+
   daily-summary:
     # 8 AM email with yesterday's sales and the stock position of each branch.
     # Comma-separated; add more emails or branches without a code change.

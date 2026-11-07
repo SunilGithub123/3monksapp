@@ -156,6 +156,11 @@ jobs:
           ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'DAILY_SUMMARY_TO=${{ vars.DAILY_SUMMARY_TO }}' >> ${{ env.APP_DIR }}/.env"
           ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'DAILY_SUMMARY_SHOPS=${{ vars.DAILY_SUMMARY_SHOPS }}' >> ${{ env.APP_DIR }}/.env"
           ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'BUSINESS_DAY_START_HOUR=${{ vars.BUSINESS_DAY_START_HOUR }}' >> ${{ env.APP_DIR }}/.env"
+          # WhatsApp bot; empty values leave the bot switched off
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'WHATSAPP_TOKEN=${{ secrets.WHATSAPP_TOKEN }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'WHATSAPP_APP_SECRET=${{ secrets.WHATSAPP_APP_SECRET }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }}' >> ${{ env.APP_DIR }}/.env"
+          ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo 'WHATSAPP_PHONE_NUMBER_ID=${{ vars.WHATSAPP_PHONE_NUMBER_ID }}' >> ${{ env.APP_DIR }}/.env"
           ssh ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} "echo '✓ .env written ('\$(wc -l < ${{ env.APP_DIR }}/.env)' lines)'"
 
   # ──────────────────────────────────────────────────────────
